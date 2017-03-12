@@ -3,24 +3,18 @@
 
 import os
 import sys
-from threading import Thread
 from ykdl.compact import Request, urlopen
-
+from ykdl.util import log
 from .html import fake_headers
 
-
-class downloadThread(Thread):
-    def __init__(self, url, file_name):
-        super(downloadThread, self).__init__()
-        self.url = url
-        self.name = file_name
-
-    def run(self):
-        try:
-            save_url(self.url, self.name)
-        except:
-            import traceback
-            traceback.print_exc()
+try:
+    from concurrent.futures import ThreadPoolExecutor
+    MultiThread = True
+except:
+    MultiThread = False
+    log.w("failed to import ThreadPoolExecutor!")
+    log.w("multithread download disabled!")
+    log.w("please install concurrent.futures from https://github.com/agronholm/pythonfutures !")
 
 def simple_hook(arg1, arg2, arg3):
     if arg3 > 0:
@@ -33,7 +27,13 @@ def simple_hook(arg1, arg2, arg3):
         sys.stdout.write('\r' + str(round(arg1 * arg2 / 1048576, 1)) + 'MB')
         sys.stdout.flush()
 
-def save_url(url, name, reporthook = simple_hook):
+def save_url(url, name, ext, part = None, reporthook = simple_hook):
+    if part is None:
+        print("Download: " + name)
+        name = name + '.' + ext
+    else:
+        print("Download: " + name + " part %d" % part)
+        name = name + '_%d_.' % part + ext
     bs = 1024*8
     size = -1
     read = 0
@@ -64,20 +64,13 @@ def save_url(url, name, reporthook = simple_hook):
             blocknum += 1
             reporthook(blocknum, bs, size)
 
-def save_urls(urls, name, ext):
-    no = 0
-    downloads_pool = []
-    for u in urls:
-        if type(urls) is list and len(urls) == 1:
-            print("Download: " + name)
-            n = name + '.' + ext
-        else:
-            print("Download: " + name + " part %d" % no)
-            n = name + '_%d_.' % no + ext
-        t = downloadThread(u, n)
-        downloads_pool.append(t)
-        t.start()
-        print("")
-        no += 1
-    for t in downloads_pool:
-        t.join()
+def save_urls(urls, name, ext, jobs=1):
+    if len(urls) == 1:
+        save_url(urls[0], name)
+    if not MultiThread:
+        for no, u in enumerate(urls):
+            save_url(u, name, ext, part = no)
+    else:
+        with ThreadPoolExecutor(max_workers=jobs) as worker:
+            for no, u in enumerate(urls):
+                worker.submit(save_url, u, name, ext, part = no)
